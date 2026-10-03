@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <sys/epoll.h>
+#include <unistd.h>
 
 int main(void){
     
@@ -36,36 +38,83 @@ int main(void){
         return 1;
     }
 
-    int client_fd;
+    int epoll_fd;
+    struct epoll_event event;
 
-    client_fd = accept(server_fd, NULL, NULL);
+    epoll_fd = epoll_create1(0);
 
-    if (client_fd == -1) {
-        perror("accept error");
+    if (epoll_fd == -1) {
+        perror("epoll_create1 error");
         return 1;
     }
 
-    printf("Client connected! client_fd = %d\n", client_fd);
+    event.events = EPOLLIN;
+    event.data.fd = server_fd;
 
-    char buffer[1024];
-    ssize_t bytes_received;
+    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, server_fd, &event) == -1) {
+        perror("epoll_ctl error");
+        return 1;
+    }
+
+    struct epoll_event events[10];
+    int event_count;
 
     while (1) {
+    
+        event_count = epoll_wait(epoll_fd, events, 10, -1);
 
-        bytes_received = recv(client_fd, buffer, sizeof(buffer) - 1, 0);    
-
-        if (bytes_received > 0) {
-            buffer[bytes_received] = '\0';
-            printf("Received %zd bytes\n", bytes_received);
-            printf("Message: %s", buffer);
-        }
-        else if (bytes_received == 0) {
-            printf("Client disconnected\n");
-            break;
-        }
-        else {
-            perror("recv error");
+        if (event_count == -1) {
+            perror("epoll_wait error");
             return 1;
+        }
+
+        for (int i = 0; i < event_count; i++) {
+
+            if (events[i].data.fd == server_fd) {
+            
+                int client_fd = accept(server_fd, NULL, NULL);
+
+                if (client_fd == -1) {
+                    perror("accept error");
+                    return 1;
+                }
+
+                printf("Client connected! client_fd = %d\n", client_fd);
+
+                event.events = EPOLLIN;
+                event.data.fd = client_fd;
+
+                if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_fd, &event) == -1) {
+                    perror("epoll_ctl client error");
+                    return 1;
+                }
+            }
+        
+            else {
+
+                int current_fd = events[i].data.fd;
+
+                char buffer[1024];
+                ssize_t bytes_received;
+
+                bytes_received = recv(current_fd, buffer, sizeof(buffer) - 1, 0); 
+            
+                if (bytes_received > 0) {
+                    buffer[bytes_received] = '\0';
+                    printf("Received %zd bytes\n", bytes_received);
+                    printf("Message: %s", buffer);
+                }
+                else if (bytes_received == 0) {
+                    printf("Client disconnected\n");
+                
+                    epoll_ctl(epoll_fd, EPOLL_CTL_DEL, current_fd, NULL);
+                    close(current_fd);
+                }
+                else {
+                    perror("recv error");
+                    return 1;
+                }
+            }
         }
     }
 
