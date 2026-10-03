@@ -4,6 +4,8 @@
 #include <netinet/in.h>
 #include <sys/epoll.h>
 #include <unistd.h>
+#include <fcntl.h>
+#include <errno.h>
 
 int main(void){
     
@@ -14,6 +16,18 @@ int main(void){
 
     if (server_fd == -1) {
         perror("socket error");
+        return 1;
+    }
+
+    int flags = fcntl(server_fd, F_GETFL, 0);
+
+    if (flags == -1) {
+        perror("fcntl F_GETFL error");
+        return 1;
+    }
+
+    if (fcntl(server_fd, F_SETFL, flags | O_NONBLOCK) == -1) {
+        perror("fcntl F_SETFL error");
         return 1;
     }
 
@@ -72,21 +86,41 @@ int main(void){
 
             if (events[i].data.fd == server_fd) {
             
-                int client_fd = accept(server_fd, NULL, NULL);
+                while (1) {
+                    
+                    int client_fd = accept(server_fd, NULL, NULL);
 
-                if (client_fd == -1) {
-                    perror("accept error");
-                    return 1;
-                }
+                    if (client_fd == -1) {
+                        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                            break;
+                        }
+                        else {
+                            perror("accept error");
+                            return 1;
+                        }
+                    }
+                
+                    int client_flags = fcntl(client_fd, F_GETFL, 0);
 
-                printf("Client connected! client_fd = %d\n", client_fd);
+                    if (client_flags == -1) {
+                        perror("fcntl client F_GETFL error");
+                        return 1;
+                    }
 
-                event.events = EPOLLIN;
-                event.data.fd = client_fd;
+                    if (fcntl(client_fd, F_SETFL, client_flags | O_NONBLOCK) == -1) {
+                        perror("fcntl client F_SETFL error");
+                        return 1;
+                    }
 
-                if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_fd, &event) == -1) {
-                    perror("epoll_ctl client error");
-                    return 1;
+                    printf("Client connected! client_fd = %d\n", client_fd);
+
+                    event.events = EPOLLIN;
+                    event.data.fd = client_fd;
+
+                    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_fd, &event) == -1) {
+                        perror("epoll_ctl client error");
+                        return 1;
+                    }
                 }
             }
         
@@ -97,27 +131,36 @@ int main(void){
                 char buffer[1024];
                 ssize_t bytes_received;
 
-                bytes_received = recv(current_fd, buffer, sizeof(buffer) - 1, 0); 
+                while(1) {
+                   
+                    bytes_received = recv(current_fd, buffer, sizeof(buffer) - 1, 0); 
             
-                if (bytes_received > 0) {
-                    buffer[bytes_received] = '\0';
-                    printf("Received %zd bytes\n", bytes_received);
-                    printf("Message: %s", buffer);
-                }
-                else if (bytes_received == 0) {
-                    printf("Client disconnected\n");
-                
-                    epoll_ctl(epoll_fd, EPOLL_CTL_DEL, current_fd, NULL);
-                    close(current_fd);
-                }
-                else {
-                    perror("recv error");
-                    return 1;
-                }
+                    if (bytes_received > 0) {
+                        buffer[bytes_received] = '\0';
+                        printf("Received %zd bytes\n", bytes_received);
+                        printf("Message: %s", buffer);
+                    }
+                    else if (bytes_received == 0) {
+                        printf("Client disconnected\n");
+                        
+                        epoll_ctl(epoll_fd, EPOLL_CTL_DEL, current_fd, NULL);
+                        close(current_fd);
+                        break;
+                    }
+                    else {
+                        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                            break;
+                        }
+                        else {
+                            perror("recv error");
+                            return 1;
+                        }
+                    }
+                }  
             }
         }
     }
-
+    
     return 0;
 
 }
