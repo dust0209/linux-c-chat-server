@@ -29,6 +29,17 @@ int main(void){
         return 1;
     }
 
+    int client_fd;
+
+    client_fd = accept(server_fd, NULL, NULL);
+
+    if (client_fd == -1){
+        perror("accept error");
+        return 1;
+    }
+
+    printf("Client connected! client_fd = %d\n", client_fd);
+
     return 0;
 
 }
