@@ -50,18 +50,23 @@ int main(void){
     char buffer[1024];
     ssize_t bytes_received;
 
-    bytes_received = recv(client_fd, buffer, sizeof(buffer) - 1, 0);
+    while (1) {
 
-    if (bytes_received > 0) {
-        buffer[bytes_received] = '\0';
-        printf("Received %zd bytes\n", bytes_received);
-        printf("Message: %s", buffer);
-    }
-    else if (bytes_received == 0) {
-        printf("Client disconnected\n");
-    }
-    else {
-        perror("recv error");
+        bytes_received = recv(client_fd, buffer, sizeof(buffer) - 1, 0);    
+
+        if (bytes_received > 0) {
+            buffer[bytes_received] = '\0';
+            printf("Received %zd bytes\n", bytes_received);
+            printf("Message: %s", buffer);
+        }
+        else if (bytes_received == 0) {
+            printf("Client disconnected\n");
+            break;
+        }
+        else {
+            perror("recv error");
+            return 1;
+        }
     }
 
     return 0;
