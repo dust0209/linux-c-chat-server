@@ -7,6 +7,14 @@
 #include <fcntl.h>
 #include <errno.h>
 
+#define MESSAGE_BUFFER_SIZE 4096
+
+struct client {
+    int fd;
+    char message_buffer[MESSAGE_BUFFER_SIZE];
+    size_t message_length;
+};
+
 int main(void){
     
     int server_fd;
@@ -63,7 +71,7 @@ int main(void){
     }
 
     event.events = EPOLLIN;
-    event.data.fd = server_fd;
+    event.data.ptr = NULL;
 
     if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, server_fd, &event) == -1) {
         perror("epoll_ctl error");
@@ -84,7 +92,7 @@ int main(void){
 
         for (int i = 0; i < event_count; i++) {
 
-            if (events[i].data.fd == server_fd) {
+            if (events[i].data.ptr == NULL) {
             
                 while (1) {
                     
@@ -99,7 +107,18 @@ int main(void){
                             return 1;
                         }
                     }
-                
+
+                    struct client *new_client = malloc(sizeof(struct client));
+
+                    if (new_client == NULL) {
+                        perror("malloc error");
+                        close(client_fd);
+                        return 1;
+                    }
+                    
+                    new_client->fd = client_fd;
+                    new_client->message_length = 0;
+
                     int client_flags = fcntl(client_fd, F_GETFL, 0);
 
                     if (client_flags == -1) {
@@ -115,7 +134,7 @@ int main(void){
                     printf("Client connected! client_fd = %d\n", client_fd);
 
                     event.events = EPOLLIN;
-                    event.data.fd = client_fd;
+                    event.data.ptr = new_client;
 
                     if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_fd, &event) == -1) {
                         perror("epoll_ctl client error");
@@ -126,7 +145,8 @@ int main(void){
         
             else {
 
-                int current_fd = events[i].data.fd;
+                struct client *current_client = events[i].data.ptr;
+                int current_fd = current_client->fd;
 
                 char buffer[1024];
                 ssize_t bytes_received;
@@ -138,13 +158,32 @@ int main(void){
                     if (bytes_received > 0) {
                         buffer[bytes_received] = '\0';
                         printf("Received %zd bytes\n", bytes_received);
-                        printf("Message: %s", buffer);
+
+                        for (ssize_t j = 0; j < bytes_received; j++) {
+                            
+                            if (current_client->message_length >= MESSAGE_BUFFER_SIZE - 1) {
+                                printf("Message too long\n");
+                                current_client->message_length = 0;
+                            }
+                            
+                            current_client->message_buffer[current_client->message_length] = buffer[j];
+                            current_client->message_length++;
+
+                            if (buffer[j] == '\n') {
+                                current_client->message_buffer[current_client->message_length] = '\0';
+
+                                printf("Complete message: %s", current_client->message_buffer);
+
+                                current_client->message_length = 0;
+                            }
+                        }
                     }
                     else if (bytes_received == 0) {
                         printf("Client disconnected\n");
                         
                         epoll_ctl(epoll_fd, EPOLL_CTL_DEL, current_fd, NULL);
                         close(current_fd);
+                        free(current_client);
                         break;
                     }
                     else {
