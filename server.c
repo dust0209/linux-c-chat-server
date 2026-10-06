@@ -13,12 +13,14 @@ struct client {
     int fd;
     char message_buffer[MESSAGE_BUFFER_SIZE];
     size_t message_length;
+    struct client *next;
 };
 
 int main(void){
     
     int server_fd;
     struct sockaddr_in server_addr;
+    struct client *client_list = NULL;
 
     server_fd = socket(AF_INET, SOCK_STREAM, 0);
 
@@ -118,6 +120,8 @@ int main(void){
                     
                     new_client->fd = client_fd;
                     new_client->message_length = 0;
+                    new_client->next = client_list;
+                    client_list = new_client;
 
                     int client_flags = fcntl(client_fd, F_GETFL, 0);
 
@@ -173,7 +177,16 @@ int main(void){
                                 current_client->message_buffer[current_client->message_length] = '\0';
 
                                 printf("Complete message: %s", current_client->message_buffer);
+                                
+                                struct client *target = client_list;
 
+                                while (target != NULL) {
+                                    if (target != current_client) {
+                                        send(target->fd, current_client->message_buffer, current_client->message_length, 0);
+                                    }
+                                    
+                                    target = target->next;
+                                }
                                 current_client->message_length = 0;
                             }
                         }
@@ -183,6 +196,18 @@ int main(void){
                         
                         epoll_ctl(epoll_fd, EPOLL_CTL_DEL, current_fd, NULL);
                         close(current_fd);
+                        if (client_list == current_client) {
+                            client_list = current_client->next;
+                        }
+                        else {
+                            struct client *prev = client_list;
+
+                            while (prev->next != current_client) {
+                                prev = prev->next;
+                            }
+
+                            prev->next = current_client->next;
+                        }
                         free(current_client);
                         break;
                     }
