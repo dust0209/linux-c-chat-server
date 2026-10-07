@@ -33,6 +33,22 @@ void remove_client(struct client **client_list, struct client *current_client) {
     }
 }
 
+void cleanup_client(
+    int epoll_fd,
+    struct client **client_list,
+    struct client *current_client
+) {
+    int current_fd = current_client->fd;
+
+    if (epoll_ctl(epoll_fd, EPOLL_CTL_DEL, current_fd, NULL) == -1) {
+        perror("epoll_ctl DEL error");
+    }
+
+    close(current_fd);
+    remove_client(client_list, current_client);
+    free(current_client);
+}
+
 int main(void){
     
     int server_fd;
@@ -176,7 +192,7 @@ int main(void){
 
                     if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_fd, &event) == -1) {
                         perror("epoll_ctl client error");
-                        
+                        cleanup_client(epoll_fd, &client_list, new_client);
                         close(client_fd);
                         remove_client(&client_list, new_client);
                         free(new_client);
@@ -194,14 +210,7 @@ int main(void){
                 if (events[i].events & (EPOLLERR | EPOLLHUP)) {
                     printf("Client connection error or hangup\n");
 
-                    if (epoll_ctl(epoll_fd, EPOLL_CTL_DEL, current_fd, NULL) == -1) {
-                        perror("epoll_ctl DEL error");
-                    }
-
-                    close(current_fd);
-
-                    remove_client(&client_list, current_client);
-                    free(current_client);
+                    cleanup_client(epoll_fd, &client_list, current_client);
 
                     continue;
                 }
@@ -254,14 +263,8 @@ int main(void){
                     else if (bytes_received == 0) {
                         printf("Client disconnected\n");
                         
-                        if (epoll_ctl(epoll_fd, EPOLL_CTL_DEL, current_fd, NULL) == -1) {
-                            perror("epoll_ctl DEL error");
-                        }
-                        close(current_fd);
+                        cleanup_client(epoll_fd, &client_list, current_client);
 
-                        remove_client(&client_list, current_client);
-                        
-                        free(current_client);
                         break;
                     }
                     else {
@@ -274,13 +277,7 @@ int main(void){
                         else {
                             perror("recv error");
                             
-                            if (epoll_ctl(epoll_fd, EPOLL_CTL_DEL, current_fd, NULL) == -1) {
-                                perror("epoll_ctl DEL error");
-                            }
-                            close(current_fd);
-
-                            remove_client(&client_list, current_client);
-                            free(current_client);
+                            cleanup_client(epoll_fd, &client_list, current_client);
 
                             break;
                         }
