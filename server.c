@@ -16,6 +16,23 @@ struct client {
     struct client *next;
 };
 
+void remove_client(struct client **client_list, struct client *current_client) {
+    if (*client_list == current_client) {
+        *client_list = current_client->next;
+        return;
+    }
+
+    struct client *prev = *client_list;
+
+    while (prev != NULL && prev->next != current_client) {
+        prev = prev->next;
+    }
+
+    if (prev != NULL) {
+        prev->next = current_client->next;
+    }
+}
+
 int main(void){
     
     int server_fd;
@@ -88,6 +105,10 @@ int main(void){
         event_count = epoll_wait(epoll_fd, events, 10, -1);
 
         if (event_count == -1) {
+            if (errno == EINTR) {
+                continue;
+            }
+
             perror("epoll_wait error");
             return 1;
         }
@@ -103,6 +124,9 @@ int main(void){
                     if (client_fd == -1) {
                         if (errno == EAGAIN || errno == EWOULDBLOCK) {
                             break;
+                        }
+                        else if (errno == EINTR) {
+                            continue;
                         }
                         else {
                             perror("accept error");
@@ -127,12 +151,22 @@ int main(void){
 
                     if (client_flags == -1) {
                         perror("fcntl client F_GETFL error");
-                        return 1;
+
+                        close(client_fd);
+                        remove_client(&client_list, new_client);
+                        free(new_client);
+
+                        continue;
                     }
 
                     if (fcntl(client_fd, F_SETFL, client_flags | O_NONBLOCK) == -1) {
                         perror("fcntl client F_SETFL error");
-                        return 1;
+
+                        close(client_fd);
+                        remove_client(&client_list, new_client);
+                        free(new_client);
+
+                        continue;
                     }
 
                     printf("Client connected! client_fd = %d\n", client_fd);
@@ -142,7 +176,12 @@ int main(void){
 
                     if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_fd, &event) == -1) {
                         perror("epoll_ctl client error");
-                        return 1;
+                        
+                        close(client_fd);
+                        remove_client(&client_list, new_client);
+                        free(new_client);
+
+                        continue;
                     }
                 }
             }
@@ -151,6 +190,21 @@ int main(void){
 
                 struct client *current_client = events[i].data.ptr;
                 int current_fd = current_client->fd;
+
+                if (events[i].events & (EPOLLERR | EPOLLHUP)) {
+                    printf("Client connection error or hangup\n");
+
+                    if (epoll_ctl(epoll_fd, EPOLL_CTL_DEL, current_fd, NULL) == -1) {
+                        perror("epoll_ctl DEL error");
+                    }
+
+                    close(current_fd);
+
+                    remove_client(&client_list, current_client);
+                    free(current_client);
+
+                    continue;
+                }
 
                 char buffer[1024];
                 ssize_t bytes_received;
@@ -182,10 +236,16 @@ int main(void){
 
                                 while (target != NULL) {
                                     if (target != current_client) {
-                                        send(target->fd, current_client->message_buffer, current_client->message_length, 0);
+                                        send(
+                                            target->fd, 
+                                            current_client->message_buffer, 
+                                            current_client->message_length, 
+                                            MSG_NOSIGNAL
+                                        );
                                     }
-                                    
+
                                     target = target->next;
+
                                 }
                                 current_client->message_length = 0;
                             }
@@ -194,20 +254,13 @@ int main(void){
                     else if (bytes_received == 0) {
                         printf("Client disconnected\n");
                         
-                        epoll_ctl(epoll_fd, EPOLL_CTL_DEL, current_fd, NULL);
+                        if (epoll_ctl(epoll_fd, EPOLL_CTL_DEL, current_fd, NULL) == -1) {
+                            perror("epoll_ctl DEL error");
+                        }
                         close(current_fd);
-                        if (client_list == current_client) {
-                            client_list = current_client->next;
-                        }
-                        else {
-                            struct client *prev = client_list;
 
-                            while (prev->next != current_client) {
-                                prev = prev->next;
-                            }
-
-                            prev->next = current_client->next;
-                        }
+                        remove_client(&client_list, current_client);
+                        
                         free(current_client);
                         break;
                     }
@@ -215,9 +268,21 @@ int main(void){
                         if (errno == EAGAIN || errno == EWOULDBLOCK) {
                             break;
                         }
+                        else if (errno == EINTR) {
+                            continue;
+                        }
                         else {
                             perror("recv error");
-                            return 1;
+                            
+                            if (epoll_ctl(epoll_fd, EPOLL_CTL_DEL, current_fd, NULL) == -1) {
+                                perror("epoll_ctl DEL error");
+                            }
+                            close(current_fd);
+
+                            remove_client(&client_list, current_client);
+                            free(current_client);
+
+                            break;
                         }
                     }
                 }  
