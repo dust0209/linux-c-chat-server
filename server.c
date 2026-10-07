@@ -239,7 +239,11 @@ int main(void){
                             if (buffer[j] == '\n') {
                                 current_client->message_buffer[current_client->message_length] = '\0';
 
-                                printf("Complete message: %s", current_client->message_buffer);
+                                printf(
+                                    "Message from client_fd=%d: %s",
+                                    current_fd,
+                                    current_client->message_buffer
+                                );
                                 
                                 struct client *target = client_list;
 
