@@ -3,11 +3,15 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <unistd.h>
+#include <string.h>
 
 int main(void) 
 {
     int client_fd;
     struct sockaddr_in server_addr;
+    char message[1024];
+    size_t total_sent = 0;
+    size_t message_length;
 
     client_fd = socket(AF_INET, SOCK_STREAM, 0);
 
@@ -30,6 +34,33 @@ int main(void)
     }
 
     printf("Connected to server\n");
+
+    printf("Enter message: ");
+    if (fgets(message, sizeof(message), stdin) == NULL) {
+        perror("Input error");
+        close(client_fd);
+        return 1;
+    }
+    
+    message_length = strlen(message);
+
+    while (total_sent < message_length) {
+         ssize_t sent = send(
+            client_fd, 
+            message + total_sent, 
+            message_length - total_sent, 
+            0);
+
+        if (sent <= 0) {
+            perror("send error");
+            close(client_fd);
+            return 1;
+        }
+
+        total_sent += sent;
+    }
+   
+    printf("Sent %zu bytes\n", total_sent);
 
     close(client_fd);
     return 0;
