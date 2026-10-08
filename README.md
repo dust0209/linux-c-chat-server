@@ -38,6 +38,12 @@ Connect clients from other terminals:
 nc 127.0.0.1 8080
 ```
 
+Alternatively, run the C client:
+
+```bash
+./client
+```
+
 The server listens on TCP port `8080`.
 
 ## How It Works
