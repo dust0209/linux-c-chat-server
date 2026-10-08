@@ -21,6 +21,7 @@ to all connected clients except the sender.
 
 ```bash
 gcc -Wall -Wextra server.c -o server
+gcc -Wall -Wextra client.c -o client
 ```
 
 ## Run
