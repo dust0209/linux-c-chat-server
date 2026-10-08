@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <poll.h>
+#include <errno.h>
 
 int main(void) 
 {
@@ -19,7 +20,7 @@ int main(void)
     client_fd = socket(AF_INET, SOCK_STREAM, 0);
 
     if (client_fd == -1) {
-        perror("socket error");
+        perror("Socket error");
         return 1;
     }
 
@@ -36,7 +37,7 @@ int main(void)
         (struct sockaddr *)&server_addr,
         sizeof(server_addr)
     ) == -1) {
-        perror("connect error");
+        perror("Connect error");
         close(client_fd);
         return 1;   
     }
@@ -49,13 +50,15 @@ int main(void)
     fds[1].fd = client_fd;
     fds[1].events = POLLIN;
 
-    
-
     while (1) {
 
         int ready = poll(fds, 2, -1);
 
         if (ready == -1) {
+            if (errno == EINTR) {
+                continue;
+            }
+
             perror("Poll error");
             close(client_fd);
             return 1;
@@ -76,8 +79,18 @@ int main(void)
                     message_length - total_sent, 
                     0);
 
-                if (sent <= 0) {
-                    perror("send error");
+                if (sent == -1) {
+                    if (errno == EINTR) {
+                        continue;
+                    }
+
+                    perror("Send error");
+                    close(client_fd);
+                    return 1;
+                }
+
+                if (sent == 0) {
+                    fprintf(stderr, "Send returned 0\n");
                     close(client_fd);
                     return 1;
                 }
@@ -86,7 +99,7 @@ int main(void)
             }
             
             printf("Sent %zu bytes\n", total_sent);
-        }
+        }     
 
         if (fds[1].revents & POLLIN) {
        
@@ -104,7 +117,17 @@ int main(void)
                 printf("Server disconnected\n");
                 break;
             } else {
-                perror("recv error");
+                if (errno == EINTR) {
+                    continue;
+                }
+
+                perror("Recv error");
+                break;
+            }
+
+            if(fds[1].revents & (POLLHUP | POLLERR | POLLNVAL)) {
+                printf("Server connection error or hangup\n");
+                break;
             }
         }
     }

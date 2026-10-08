@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <string.h>
 
 #define MESSAGE_BUFFER_SIZE 4096
 
@@ -13,6 +14,9 @@ struct client {
     int fd;
     char message_buffer[MESSAGE_BUFFER_SIZE];
     size_t message_length;
+    char send_buffer[MESSAGE_BUFFER_SIZE];
+    size_t send_length;
+    size_t send_offset;
     struct client *next;
 };
 
@@ -49,7 +53,7 @@ void cleanup_client(
     free(current_client);
 }
 
-int main(void){
+int main(void) {
     
     int server_fd;
     struct sockaddr_in server_addr;
@@ -161,6 +165,8 @@ int main(void){
                     new_client->fd = client_fd;
                     new_client->message_length = 0;
                     new_client->next = client_list;
+                    new_client->send_length = 0;
+                    new_client->send_offset = 0;
                     client_list = new_client;
 
                     int client_flags = fcntl(client_fd, F_GETFL, 0);
@@ -212,6 +218,51 @@ int main(void){
 
                     continue;
                 }
+                
+                if (events[i].events & EPOLLOUT) {
+                    int send_failed = 0;
+                   
+                    while (current_client->send_offset < current_client->send_length) {
+                        ssize_t sent = send(
+                            current_fd,
+                            current_client->send_buffer + current_client->send_offset,
+                            current_client->send_length - current_client->send_offset,
+                            MSG_NOSIGNAL
+                        );
+
+                        if (sent > 0) {
+                            current_client->send_offset += sent;
+                        } else if (sent == -1 && errno == EINTR) {
+                            continue;
+                        } else if (sent == -1 &&
+                                    (errno == EAGAIN || errno == EWOULDBLOCK)) {
+                            break;
+                        } else {
+                            perror("Send error");
+                            send_failed = 1;
+                            break;
+                        }
+                    }
+
+                    if (send_failed) {
+                        cleanup_client(epoll_fd, &client_list, current_client);
+                        continue;
+                    }
+
+                    if (current_client->send_offset == current_client->send_length) {
+                        current_client->send_length = 0;
+                        current_client->send_offset = 0;
+
+                        struct epoll_event read_event;
+
+                        read_event.events = EPOLLIN;
+                        read_event.data.ptr = current_client;
+
+                        if (epoll_ctl(epoll_fd, EPOLL_CTL_MOD, current_fd, &read_event) == -1) {
+                            perror("epoll_ctl MOD error");
+                        }
+                    }
+                }
 
                 char buffer[1024];
                 ssize_t bytes_received;
@@ -247,16 +298,39 @@ int main(void){
 
                                 while (target != NULL) {
                                     if (target != current_client) {
-                                        ssize_t sent = send(
-                                            target->fd,
-                                            current_client->message_buffer,
-                                            current_client->message_length,
-                                            MSG_NOSIGNAL
-                                        );
- 
-                                        if (sent == -1 && errno != EAGAIN && errno != EWOULDBLOCK) {
-                                            perror("Broadcast send error");
+                                        if (target->send_offset > 0) {
+                                            size_t remaining = target->send_length - target->send_offset;
+
+                                            memmove(
+                                                target->send_buffer,
+                                                target->send_buffer + target->send_offset,
+                                                remaining
+                                            );
+
+                                            target->send_length = remaining;
+                                            target->send_offset = 0;
                                         }
+                                        if (target->send_length + current_client->message_length > MESSAGE_BUFFER_SIZE) {
+                                            printf("Send buffer full\n");
+                                            target = target->next;
+                                            continue;
+                                        }
+                                        memcpy(
+                                            target->send_buffer + target->send_length,
+                                            current_client->message_buffer,
+                                            current_client->message_length
+                                        );
+
+                                        target->send_length += current_client->message_length;
+
+                                        struct epoll_event send_event;
+
+                                        send_event.events = EPOLLIN | EPOLLOUT;
+                                        send_event.data.ptr = target;
+
+                                        if (epoll_ctl(epoll_fd, EPOLL_CTL_MOD, target->fd, &send_event) == -1) {
+                                            perror("epoll_ctl MOD error");
+                                        }                        
                                     }
 
                                     target = target->next;
@@ -296,5 +370,4 @@ int main(void){
     }
     
     return 0;
-
 }
