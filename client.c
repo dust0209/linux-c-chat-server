@@ -23,7 +23,11 @@ int main(void)
 
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(8080);
-    inet_pton(AF_INET, "127.0.0.1", &server_addr.sin_addr);
+    if (inet_pton(AF_INET, "127.0.0.1", &server_addr.sin_addr) != 1) {
+        fprintf(stderr, "Invalid server IP address\n");
+        close(client_fd);
+        return 1;
+    }
 
     if (connect(
         client_fd,
@@ -31,6 +35,7 @@ int main(void)
         sizeof(server_addr)
     ) == -1) {
         perror("connect error");
+        close(client_fd);
         return 1;   
     }
 

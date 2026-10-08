@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <string.h>
 
 #define MESSAGE_BUFFER_SIZE 4096
 
@@ -192,11 +193,9 @@ int main(void){
 
                     if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_fd, &event) == -1) {
                         perror("epoll_ctl client error");
+                        
                         cleanup_client(epoll_fd, &client_list, new_client);
-                        close(client_fd);
-                        remove_client(&client_list, new_client);
-                        free(new_client);
-
+                        
                         continue;
                     }
                 }
@@ -249,21 +248,26 @@ int main(void){
 
                                 while (target != NULL) {
                                     if (target != current_client) {
-                                        send(
-                                            target->fd, 
-                                            current_client->message_buffer, 
-                                            current_client->message_length, 
+                                        ssize_t sent = send(
+                                            target->fd,
+                                            current_client->message_buffer,
+                                            current_client->message_length,
                                             MSG_NOSIGNAL
                                         );
+ 
+                                        if (sent == -1 && errno != EAGAIN && errno != EWOULDBLOCK) {
+                                            perror("Broadcast send error");
+                                        }
                                     }
 
                                     target = target->next;
-
                                 }
-                                current_client->message_length = 0;
+
+                            current_client->message_length = 0;
                             }
                         }
                     }
+                    
                     else if (bytes_received == 0) {
                         printf("Client disconnected\n");
                         
@@ -271,6 +275,7 @@ int main(void){
 
                         break;
                     }
+                  
                     else {
                         if (errno == EAGAIN || errno == EWOULDBLOCK) {
                             break;
@@ -285,7 +290,7 @@ int main(void){
 
                             break;
                         }
-                    }
+                    } 
                 }  
             }
         }
