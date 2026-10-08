@@ -4,6 +4,7 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <string.h>
+#include <poll.h>
 
 int main(void) 
 {
@@ -13,6 +14,7 @@ int main(void)
     size_t total_sent = 0;
     size_t message_length;
     char recv_buffer[1024];
+    struct pollfd fds[2];
 
     client_fd = socket(AF_INET, SOCK_STREAM, 0);
 
@@ -40,50 +42,73 @@ int main(void)
     }
 
     printf("Connected to server\n");
-
-    printf("Enter message: ");
-    if (fgets(message, sizeof(message), stdin) == NULL) {
-        perror("Input error");
-        close(client_fd);
-        return 1;
-    }
     
-    message_length = strlen(message);
+    fds[0].fd = STDIN_FILENO;
+    fds[0].events = POLLIN;
 
-    while (total_sent < message_length) {
-         ssize_t sent = send(
-            client_fd, 
-            message + total_sent, 
-            message_length - total_sent, 
-            0);
+    fds[1].fd = client_fd;
+    fds[1].events = POLLIN;
 
-        if (sent <= 0) {
-            perror("send error");
+    
+
+    while (1) {
+
+        int ready = poll(fds, 2, -1);
+
+        if (ready == -1) {
+            perror("Poll error");
             close(client_fd);
             return 1;
         }
 
-        total_sent += sent;
-    }
-   
-    printf("Sent %zu bytes\n", total_sent);
+        if (fds[0].revents & POLLIN) {
+            if (fgets(message, sizeof(message), stdin) == NULL) {
+                printf("Input ended\n");
+                break;
+            }
+            message_length = strlen(message);
+            total_sent = 0;
 
-    ssize_t received = recv(
-        client_fd, 
-        recv_buffer, 
-        sizeof(recv_buffer) - 1, 
-        0
-    );
+            while (total_sent < message_length) {
+                ssize_t sent = send(
+                    client_fd, 
+                    message + total_sent, 
+                    message_length - total_sent, 
+                    0);
 
-    if (received > 0) {
-        printf("Received %zd bytes\n", received);
-        fwrite(recv_buffer, 1, received, stdout);
-    } else if (received == 0) {
-        printf("Server disconnected\n");
-    } else {
-        perror("recv error");
+                if (sent <= 0) {
+                    perror("send error");
+                    close(client_fd);
+                    return 1;
+                }
+
+                total_sent += sent;
+            }
+            
+            printf("Sent %zu bytes\n", total_sent);
+        }
+
+        if (fds[1].revents & POLLIN) {
+       
+            ssize_t received = recv(
+                client_fd, 
+                recv_buffer, 
+                sizeof(recv_buffer) - 1, 
+                0
+            );
+
+            if (received > 0) {
+                printf("Received %zd bytes\n", received);
+                fwrite(recv_buffer, 1, received, stdout);
+            } else if (received == 0) {
+                printf("Server disconnected\n");
+                break;
+            } else {
+                perror("recv error");
+            }
+        }
     }
-        
+
     close(client_fd);
     return 0;
 }
