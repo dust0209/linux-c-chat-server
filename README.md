@@ -11,7 +11,8 @@ to all connected clients except the sender.
 - TCP socket server
 - Multiple client connections
 - Non-blocking I/O
-- `epoll`-based event handling
+- `epoll`-based server event handling
+- `poll`-based client event handling
 - Newline-based message framing
 - Message broadcasting
 - Client connection/disconnection handling
@@ -50,7 +51,7 @@ The server listens on TCP port `8080`.
 
 1. The server creates a TCP listening socket on port `8080`.
 2. The listening socket and client sockets operate in non-blocking mode.
-3. `epoll` monitors multiple client connections efficiently.
+3. `epoll` monitors multiple sockets for I/O events.
 4. Each client has its own message buffer.
 5. TCP data is accumulated until a newline (`\n`) completes a message.
 6. Complete messages are broadcast to all connected clients except the sender.
@@ -62,6 +63,7 @@ The server listens on TCP port `8080`.
 - Linux
 - TCP/IP sockets
 - epoll
+- poll
 - Non-blocking I/O
 - Git / GitHub
 
@@ -70,11 +72,14 @@ The server listens on TCP port `8080`.
 ```text
 linux-c-chat-server/
 ├── server.c
-└── README.md
+├── client.c
+├── README.md
+└── docs/
+    └── chat-server-demo.png
 ```
 
 ## Demo
 
-The screenshot below shows two clients connected to the server and exchanging messages through the broadcast server.
+The screenshot below shows two clients connected to the server and exchanging messages through the chat server.
 
 ![Chat server demo](docs/chat-server-demo.png)
