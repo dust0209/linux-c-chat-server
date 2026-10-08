@@ -12,6 +12,7 @@ int main(void)
     char message[1024];
     size_t total_sent = 0;
     size_t message_length;
+    char recv_buffer[1024];
 
     client_fd = socket(AF_INET, SOCK_STREAM, 0);
 
@@ -62,6 +63,22 @@ int main(void)
    
     printf("Sent %zu bytes\n", total_sent);
 
+    ssize_t received = recv(
+        client_fd, 
+        recv_buffer, 
+        sizeof(recv_buffer) - 1, 
+        0
+    );
+
+    if (received > 0) {
+        printf("Received %zd bytes\n", received);
+        fwrite(recv_buffer, 1, received, stdout);
+    } else if (received == 0) {
+        printf("Server disconnected\n");
+    } else {
+        perror("recv error");
+    }
+        
     close(client_fd);
     return 0;
 }
